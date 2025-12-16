@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini Chat</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #f4f4f9;
+            --chat-bg: #ffffff;
+            --user-msg-bg: #007bff;
+            --user-msg-text: #ffffff;
+            --model-msg-bg: #e9ecef;
+            --model-msg-text: #333333;
+            --border-color: #ddd;
+            --accent-color: #007bff;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        header {
+            background-color: var(--chat-bg);
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.2rem;
+            color: #333;
+        }
+
+        .settings {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        input[type="password"], select {
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+        }
+
+        button {
+            padding: 0.5rem 1rem;
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        #chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            max-width: 900px;
+            margin: 0 auto;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .message {
+            max-width: 85%;
+            padding: 1rem;
+            border-radius: 8px;
+            line-height: 1.5;
+            position: relative;
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background-color: var(--user-msg-bg);
+            color: var(--user-msg-text);
+            border-bottom-right-radius: 0;
+        }
+
+        .message.model {
+            align-self: flex-start;
+            background-color: var(--model-msg-bg);
+            color: var(--model-msg-text);
+            border-bottom-left-radius: 0;
+        }
+
+        .message pre {
+            background-color: #2d2d2d;
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            color: #ccc;
+        }
+
+        .message code {
+            font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+        }
+
+        .message.user code {
+            background-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .message.model code:not(pre code) {
+            background-color: rgba(0, 0, 0, 0.1);
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+        }
+
+        .message-meta {
+            font-size: 0.75rem;
+            margin-top: 0.5rem;
+            opacity: 0.7;
+            text-align: right;
+        }
+
+        #input-area {
+            background-color: var(--chat-bg);
+            padding: 1rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .input-wrapper {
+            max-width: 900px;
+            margin: 0 auto;
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        textarea {
+            flex: 1;
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            resize: none;
+            height: 50px;
+            font-family: inherit;
+        }
+
+        textarea:focus {
+            outline: 2px solid var(--accent-color);
+        }
+
+        .error-msg {
+            color: #dc3545;
+            padding: 0.5rem;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+            display: none;
+        }
+
+        /* Loading indicator */
+        .typing-indicator {
+            display: inline-block;
+        }
+        .typing-indicator span {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            background-color: #555;
+            border-radius: 50%;
+            animation: typing 1s infinite;
+            margin: 0 2px;
+        }
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typing {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>Gemini Chat</h1>
+    <div class="settings">
+        <input type="password" id="api-key" placeholder="Enter Gemini API Key">
+        <select id="model-select">
+            <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+            <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+            <option value="gemini-1.0-pro">Gemini 1.0 Pro</option>
+        </select>
+        <button id="refresh-models" title="Fetch available models">↻</button>
+    </div>
+</header>
+
+<div id="chat-container">
+    <!-- Messages will appear here -->
+    <div class="message model">
+        Hello! I'm Gemini. Please enter your API key above to start chatting.
+    </div>
+</div>
+
+<div id="input-area">
+    <div id="error-display" class="error-msg"></div>
+    <div class="input-wrapper">
+        <textarea id="user-input" placeholder="Type a message..." rows="1"></textarea>
+        <button id="send-btn">Send</button>
+    </div>
+</div>
+
+<script>
+    // State
+    const state = {
+        apiKey: localStorage.getItem('gemini_api_key') || '',
+        model: localStorage.getItem('gemini_model') || 'gemini-1.5-flash',
+        history: [], // Array of {role, parts: [{text}]}
+    };
+
+    // Elements
+    const apiKeyInput = document.getElementById('api-key');
+    const modelSelect = document.getElementById('model-select');
+    const refreshBtn = document.getElementById('refresh-models');
+    const chatContainer = document.getElementById('chat-container');
+    const userInput = document.getElementById('user-input');
+    const sendBtn = document.getElementById('send-btn');
+    const errorDisplay = document.getElementById('error-display');
+
+    // Init
+    apiKeyInput.value = state.apiKey;
+    if (state.model) {
+        // If the saved model isn't in the default list, add it temporarily
+        if (![...modelSelect.options].some(o => o.value === state.model)) {
+            const opt = document.createElement('option');
+            opt.value = state.model;
+            opt.textContent = state.model;
+            modelSelect.appendChild(opt);
+        }
+        modelSelect.value = state.model;
+    }
+
+    // Event Listeners
+    apiKeyInput.addEventListener('input', (e) => {
+        state.apiKey = e.target.value;
+        localStorage.setItem('gemini_api_key', state.apiKey);
+    });
+
+    modelSelect.addEventListener('change', (e) => {
+        state.model = e.target.value;
+        localStorage.setItem('gemini_model', state.model);
+    });
+
+    refreshBtn.addEventListener('click', fetchModels);
+
+    sendBtn.addEventListener('click', sendMessage);
+
+    userInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+
+    // Auto-resize textarea
+    userInput.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = (this.scrollHeight) + 'px';
+        if (this.value === '') {
+            this.style.height = '50px';
+        }
+    });
+
+    // Markdown configuration
+    marked.setOptions({
+        highlight: function(code, lang) {
+            if (lang && hljs.getLanguage(lang)) {
+                return hljs.highlight(code, { language: lang }).value;
+            }
+            return hljs.highlightAuto(code).value;
+        },
+        breaks: true
+    });
+
+    async function fetchModels() {
+        if (!state.apiKey) {
+            showError("Please enter an API Key first.");
+            return;
+        }
+
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = '...';
+
+        try {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${state.apiKey}`);
+            if (!response.ok) throw new Error('Failed to fetch models');
+
+            const data = await response.json();
+
+            // Filter and sort models
+            const models = data.models
+                .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
+                .sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+            modelSelect.innerHTML = '';
+            models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.name.replace('models/', '');
+                opt.textContent = m.displayName + ` (${opt.value})`;
+                modelSelect.appendChild(opt);
+            });
+
+            // Restore selection if possible, otherwise select first
+            if ([...modelSelect.options].some(o => o.value === state.model)) {
+                modelSelect.value = state.model;
+            } else if (models.length > 0) {
+                state.model = modelSelect.options[0].value;
+                localStorage.setItem('gemini_model', state.model);
+            }
+
+            showError(null); // Clear errors
+        } catch (error) {
+            showError("Error fetching models: " + error.message);
+        } finally {
+            refreshBtn.disabled = false;
+            refreshBtn.textContent = '↻';
+        }
+    }
+
+    async function sendMessage() {
+        const text = userInput.value.trim();
+        if (!text) return;
+        if (!state.apiKey) {
+            showError("Please enter an API Key.");
+            return;
+        }
+
+        showError(null);
+        userInput.value = '';
+        userInput.style.height = '50px';
+
+        // Disable UI
+        userInput.disabled = true;
+        sendBtn.disabled = true;
+
+        // Add User Message
+        addMessage(text, 'user');
+        state.history.push({ role: 'user', parts: [{ text }] });
+
+        // Prepare Model Message Placeholder
+        const modelMsgDiv = addMessage('<div class="typing-indicator"><span></span><span></span><span></span></div>', 'model', true);
+        const startTime = performance.now();
+        let fullResponseText = '';
+        let usageMetadata = null;
+
+        // Reset stream buffer for this request
+        streamBuffer = '';
+
+        try {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${state.model}:streamGenerateContent?key=${state.apiKey}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    contents: state.history
+                })
+            });
+
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`API Error: ${response.status} - ${errText}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+
+            // Clear typing indicator
+            modelMsgDiv.innerHTML = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+
+                await processStreamChunk(chunk, (textPart, metadata) => {
+                    if (textPart) {
+                        fullResponseText += textPart;
+                        modelMsgDiv.innerHTML = marked.parse(fullResponseText);
+                        // Highlight code blocks
+                        modelMsgDiv.querySelectorAll('pre code').forEach((block) => {
+                            hljs.highlightElement(block);
+                        });
+                    }
+                    if (metadata) {
+                        usageMetadata = metadata;
+                    }
+                    scrollToBottom();
+                });
+            }
+
+            // Finished
+            const endTime = performance.now();
+            const duration = ((endTime - startTime) / 1000).toFixed(2);
+
+            let metaHtml = `Time: ${duration}s`;
+            if (usageMetadata) {
+                metaHtml += ` | Tokens: ${usageMetadata.totalTokenCount} (In: ${usageMetadata.promptTokenCount}, Out: ${usageMetadata.candidatesTokenCount})`;
+            }
+
+            const metaDiv = document.createElement('div');
+            metaDiv.className = 'message-meta';
+            metaDiv.textContent = metaHtml; // Text content is safe, or simple text
+            modelMsgDiv.appendChild(metaDiv);
+
+            state.history.push({ role: 'model', parts: [{ text: fullResponseText }] });
+
+        } catch (error) {
+            modelMsgDiv.innerHTML += `<br><span style="color:red">[Error: ${error.message}]</span>`;
+            console.error(error);
+        } finally {
+            // Re-enable UI
+            userInput.disabled = false;
+            sendBtn.disabled = false;
+            userInput.focus();
+        }
+    }
+
+    // Helper to process the stream data
+    // The Gemini API returns a JSON array, e.g., `[{...},\r\n{...}]`.
+    // We need to buffer and parse complete JSON objects.
+    let streamBuffer = '';
+    async function processStreamChunk(chunk, callback) {
+        streamBuffer += chunk;
+
+        // Simple heuristic: Try to find complete JSON objects within the array structure
+        // The stream starts with '[' and ends with ']'. Items are separated by comma.
+
+        // Remove leading '[' if it's the start
+        if (streamBuffer.trim().startsWith('[')) {
+             // We can just find the first '[' and ignore everything before it (though usually nothing)
+             const idx = streamBuffer.indexOf('[');
+             streamBuffer = streamBuffer.slice(idx + 1);
+        }
+
+        // We might have ", " at the start if it's a subsequent item
+        if (streamBuffer.trim().startsWith(',')) {
+             const idx = streamBuffer.indexOf(',');
+             streamBuffer = streamBuffer.slice(idx + 1);
+        }
+
+        // Now try to parse objects. We look for matching braces.
+        // This is tricky with raw regex.
+        // Better approach:
+        // 1. Split by `}\n,\n{` or similar patterns if reliable.
+        // 2. Or, since we know the structure is roughly `... } , { ...`.
+
+        // Let's try a safer JSON stream parser logic.
+        // We will try to parse `streamBuffer` as much as possible.
+        // Actually, the API response is valid JSON *at the end*.
+        // While streaming, it might be `[{...}, {...`.
+
+        let depth = 0;
+        let start = 0;
+        let inString = false;
+        let escape = false;
+
+        for (let i = 0; i < streamBuffer.length; i++) {
+            const char = streamBuffer[i];
+
+            if (escape) {
+                escape = false;
+                continue;
+            }
+
+            if (char === '\\') {
+                escape = true;
+                continue;
+            }
+
+            if (char === '"') {
+                inString = !inString;
+                continue;
+            }
+
+            if (!inString) {
+                if (char === '{') {
+                    if (depth === 0) start = i;
+                    depth++;
+                } else if (char === '}') {
+                    depth--;
+                    if (depth === 0) {
+                        // Found a complete object
+                        const jsonStr = streamBuffer.substring(start, i + 1);
+                        try {
+                            const data = JSON.parse(jsonStr);
+                            handleData(data, callback);
+
+                            // Remove processed part
+                            // We need to be careful about loop index and string mutation.
+                            // Better: collect all valid objects and slice buffer at the end.
+                            // But we want real-time updates.
+
+                            // Ideally, we slice the buffer now.
+                            streamBuffer = streamBuffer.slice(i + 1);
+                            i = -1; // Reset loop because buffer changed
+                            // Also need to handle comma or whitespace after '}'
+                        } catch (e) {
+                            console.error("JSON Parse error on potential chunk", e);
+                        }
+                    }
+                } else if (char === ']') {
+                    // End of array
+                    // Ignore or clear buffer if it's just ']'
+                    if (depth === 0) {
+                         streamBuffer = streamBuffer.slice(i + 1);
+                         i = -1;
+                    }
+                }
+            }
+        }
+    }
+
+    function handleData(data, callback) {
+        if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+            const text = data.candidates[0].content.parts[0].text;
+            if (text) callback(text, null);
+        }
+        if (data.usageMetadata) {
+            callback(null, data.usageMetadata);
+        }
+    }
+
+    function addMessage(html, role, isHTML = false) {
+        const div = document.createElement('div');
+        div.className = `message ${role}`;
+        if (isHTML) {
+            div.innerHTML = html; // Assume safe if isHTML is true (used for typing indicator)
+        } else {
+            // Treat as Markdown source - Sanitize!
+            div.innerHTML = DOMPurify.sanitize(marked.parse(html));
+            div.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        }
+        chatContainer.appendChild(div);
+        scrollToBottom();
+        return div;
+    }
+
+    function scrollToBottom() {
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    function showError(msg) {
+        if (msg) {
+            errorDisplay.textContent = msg;
+            errorDisplay.style.display = 'block';
+        } else {
+            errorDisplay.style.display = 'none';
+        }
+    }
+</script>
+
+</body>
+</html>
